@@ -852,6 +852,7 @@ bool operator==(CheckMinusZeroParameters const& lhs,
   V(CheckedInt32ToTaggedSigned, 1, 1)       \
   V(CheckedInt64ToInt32, 1, 1)              \
   V(CheckedInt64ToTaggedSigned, 1, 1)       \
+  V(CheckedTaggedToArrayIndex, 1, 1)        \
   V(CheckedTaggedSignedToInt32, 1, 1)       \
   V(CheckedTaggedToTaggedPointer, 1, 1)     \
   V(CheckedTaggedToTaggedSigned, 1, 1)      \
@@ -1148,6 +1149,17 @@ struct SimplifiedOperatorGlobalCache final {
               2, 1, 1, 1, 1, 0) {}          // counts;
   };
   LoadFieldByIndexOperator kLoadFieldByIndex;
+
+  struct LoadStackArgumentOperator final : public Operator {
+    LoadStackArgumentOperator()
+        : Operator(                          // --
+              IrOpcode::kLoadStackArgument,  // opcode
+              Operator::kNoDeopt | Operator::kNoThrow |
+                  Operator::kNoWrite,  // flags
+              "LoadStackArgument",     // name
+              2, 1, 1, 1, 1, 0) {}     // counts
+  };
+  LoadStackArgumentOperator kLoadStackArgument;
 
 #define SPECULATIVE_NUMBER_BINOP(Name)                                      \
   template <NumberOperationHint kHint>                                      \
@@ -1753,6 +1765,24 @@ SPECULATIVE_NUMBER_BINOP_LIST(SPECULATIVE_NUMBER_BINOP)
   }
 ACCESS_OP_LIST(ACCESS)
 #undef ACCESS
+
+const Operator* SimplifiedOperatorBuilder::LoadMessage() {
+  return new (zone())
+      Operator(IrOpcode::kLoadMessage,
+               Operator::kNoDeopt | Operator::kNoThrow | Operator::kNoWrite,
+               "LoadMessage", 1, 1, 1, 1, 1, 0);
+}
+
+const Operator* SimplifiedOperatorBuilder::StoreMessage() {
+  return new (zone())
+      Operator(IrOpcode::kStoreMessage,
+               Operator::kNoDeopt | Operator::kNoThrow | Operator::kNoRead,
+               "StoreMessage", 2, 1, 1, 0, 1, 0);
+}
+
+const Operator* SimplifiedOperatorBuilder::LoadStackArgument() {
+  return &cache_.kLoadStackArgument;
+}
 
 const Operator* SimplifiedOperatorBuilder::TransitionAndStoreElement(
     Handle<Map> double_map, Handle<Map> fast_map) {

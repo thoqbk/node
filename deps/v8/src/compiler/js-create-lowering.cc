@@ -18,6 +18,7 @@
 #include "src/compiler/operator-properties.h"
 #include "src/compiler/simplified-operator.h"
 #include "src/compiler/state-values-utils.h"
+#include "src/execution/protectors.h"
 #include "src/objects/arguments.h"
 #include "src/objects/hash-table-inl.h"
 #include "src/objects/heap-number.h"
@@ -26,6 +27,7 @@
 #include "src/objects/js-promise.h"
 #include "src/objects/js-regexp-inl.h"
 #include "src/objects/objects-inl.h"
+#include "src/objects/template-objects.h"
 
 namespace v8 {
 namespace internal {
@@ -84,6 +86,8 @@ Reduction JSCreateLowering::Reduce(Node* node) {
       return ReduceJSCreateLiteralArrayOrObject(node);
     case IrOpcode::kJSCreateLiteralRegExp:
       return ReduceJSCreateLiteralRegExp(node);
+    case IrOpcode::kJSGetTemplateObject:
+      return ReduceJSGetTemplateObject(node);
     case IrOpcode::kJSCreateEmptyLiteralArray:
       return ReduceJSCreateEmptyLiteralArray(node);
     case IrOpcode::kJSCreateEmptyLiteralObject:
@@ -640,10 +644,10 @@ Reduction JSCreateLowering::ReduceJSCreateArray(Node* node) {
     allocation = dependencies()->DependOnPretenureMode(*site_ref);
     dependencies()->DependOnElementsKind(*site_ref);
   } else {
-    CellRef array_constructor_protector(
+    PropertyCellRef array_constructor_protector(
         broker(), factory()->array_constructor_protector());
-    can_inline_call =
-        array_constructor_protector.value().AsSmi() == Isolate::kProtectorValid;
+    can_inline_call = array_constructor_protector.value().AsSmi() ==
+                      Protectors::kProtectorValid;
   }
 
   if (arity == 0) {
@@ -1073,15 +1077,10 @@ Reduction JSCreateLowering::ReduceJSCreateLiteralArrayOrObject(Node* node) {
   CreateLiteralParameters const& p = CreateLiteralParametersOf(node->op());
   Node* effect = NodeProperties::GetEffectInput(node);
   Node* control = NodeProperties::GetControlInput(node);
-
-  FeedbackVectorRef feedback_vector(broker(), p.feedback().vector);
-  ObjectRef feedback = feedback_vector.get(p.feedback().slot);
-  // TODO(turbofan):  we should consider creating a ProcessedFeedback for
-  // allocation sites/boiler plates so that we use GetFeedback here. Then
-  // we can eventually get rid of the additional copy of feedback slots that
-  // we currently have in FeedbackVectorData.
-  if (feedback.IsAllocationSite()) {
-    AllocationSiteRef site = feedback.AsAllocationSite();
+  ProcessedFeedback const& feedback =
+      broker()->GetFeedbackForArrayOrObjectLiteral(p.feedback());
+  if (!feedback.IsInsufficient()) {
+    AllocationSiteRef site = feedback.AsLiteral().value();
     if (site.IsFastLiteral()) {
       AllocationType allocation = AllocationType::kYoung;
       if (FLAG_allocation_site_pretenuring) {
@@ -1095,20 +1094,17 @@ Reduction JSCreateLowering::ReduceJSCreateLiteralArrayOrObject(Node* node) {
       return Replace(value);
     }
   }
+
   return NoChange();
 }
 
 Reduction JSCreateLowering::ReduceJSCreateEmptyLiteralArray(Node* node) {
   DCHECK_EQ(IrOpcode::kJSCreateEmptyLiteralArray, node->opcode());
   FeedbackParameter const& p = FeedbackParameterOf(node->op());
-  FeedbackVectorRef fv(broker(), p.feedback().vector);
-  ObjectRef feedback = fv.get(p.feedback().slot);
-  // TODO(turbofan):  we should consider creating a ProcessedFeedback for
-  // allocation sites/boiler plates so that we use GetFeedback here. Then
-  // we can eventually get rid of the additional copy of feedback slots that
-  // we currently have in FeedbackVectorData.
-  if (feedback.IsAllocationSite()) {
-    AllocationSiteRef site = feedback.AsAllocationSite();
+  ProcessedFeedback const& feedback =
+      broker()->GetFeedbackForArrayOrObjectLiteral(p.feedback());
+  if (!feedback.IsInsufficient()) {
+    AllocationSiteRef site = feedback.AsLiteral().value();
     DCHECK(!site.PointsToLiteral());
     MapRef initial_map =
         native_context().GetInitialJSArrayMap(site.GetElementsKind());
@@ -1162,20 +1158,28 @@ Reduction JSCreateLowering::ReduceJSCreateLiteralRegExp(Node* node) {
   CreateLiteralParameters const& p = CreateLiteralParametersOf(node->op());
   Node* effect = NodeProperties::GetEffectInput(node);
   Node* control = NodeProperties::GetControlInput(node);
-
-  FeedbackVectorRef feedback_vector(broker(), p.feedback().vector);
-  ObjectRef feedback = feedback_vector.get(p.feedback().slot);
-  // TODO(turbofan):  we should consider creating a ProcessedFeedback for
-  // allocation sites/boiler plates so that we use GetFeedback here. Then
-  // we can eventually get rid of the additional copy of feedback slots that
-  // we currently have in FeedbackVectorData.
-  if (feedback.IsJSRegExp()) {
-    JSRegExpRef boilerplate = feedback.AsJSRegExp();
-    Node* value = effect = AllocateLiteralRegExp(effect, control, boilerplate);
+  ProcessedFeedback const& feedback =
+      broker()->GetFeedbackForRegExpLiteral(p.feedback());
+  if (!feedback.IsInsufficient()) {
+    JSRegExpRef literal = feedback.AsRegExpLiteral().value();
+    Node* value = effect = AllocateLiteralRegExp(effect, control, literal);
     ReplaceWithValue(node, value, effect, control);
     return Replace(value);
   }
   return NoChange();
+}
+
+Reduction JSCreateLowering::ReduceJSGetTemplateObject(Node* node) {
+  DCHECK_EQ(IrOpcode::kJSGetTemplateObject, node->opcode());
+  GetTemplateObjectParameters const& parameters =
+      GetTemplateObjectParametersOf(node->op());
+  SharedFunctionInfoRef shared(broker(), parameters.shared());
+  JSArrayRef template_object = shared.GetTemplateObject(
+      TemplateObjectDescriptionRef(broker(), parameters.description()),
+      parameters.feedback());
+  Node* value = jsgraph()->Constant(template_object);
+  ReplaceWithValue(node, value);
+  return Replace(value);
 }
 
 Reduction JSCreateLowering::ReduceJSCreateFunctionContext(Node* node) {
@@ -1194,26 +1198,23 @@ Reduction JSCreateLowering::ReduceJSCreateFunctionContext(Node* node) {
     Node* context = NodeProperties::GetContextInput(node);
     Node* extension = jsgraph()->TheHoleConstant();
     AllocationBuilder a(jsgraph(), effect, control);
-    STATIC_ASSERT(Context::MIN_CONTEXT_SLOTS == 4);  // Ensure fully covered.
+    STATIC_ASSERT(Context::MIN_CONTEXT_SLOTS == 3);  // Ensure fully covered.
     int context_length = slot_count + Context::MIN_CONTEXT_SLOTS;
-    Handle<Map> map;
     switch (scope_type) {
       case EVAL_SCOPE:
-        map = factory()->eval_context_map();
+        a.AllocateContext(context_length, native_context().eval_context_map());
         break;
       case FUNCTION_SCOPE:
-        map = factory()->function_context_map();
+        a.AllocateContext(context_length,
+                          native_context().function_context_map());
         break;
       default:
         UNREACHABLE();
     }
-    a.AllocateContext(context_length, MapRef(broker(), map));
     a.Store(AccessBuilder::ForContextSlot(Context::SCOPE_INFO_INDEX),
             scope_info);
     a.Store(AccessBuilder::ForContextSlot(Context::PREVIOUS_INDEX), context);
     a.Store(AccessBuilder::ForContextSlot(Context::EXTENSION_INDEX), extension);
-    a.Store(AccessBuilder::ForContextSlot(Context::NATIVE_CONTEXT_INDEX),
-            jsgraph()->Constant(native_context()));
     for (int i = Context::MIN_CONTEXT_SLOTS; i < context_length; ++i) {
       a.Store(AccessBuilder::ForContextSlot(i), jsgraph()->UndefinedConstant());
     }
@@ -1234,14 +1235,12 @@ Reduction JSCreateLowering::ReduceJSCreateWithContext(Node* node) {
   Node* context = NodeProperties::GetContextInput(node);
 
   AllocationBuilder a(jsgraph(), effect, control);
-  STATIC_ASSERT(Context::MIN_CONTEXT_SLOTS == 4);  // Ensure fully covered.
+  STATIC_ASSERT(Context::MIN_CONTEXT_SLOTS == 3);  // Ensure fully covered.
   a.AllocateContext(Context::MIN_CONTEXT_SLOTS,
-                    MapRef(broker(), factory()->with_context_map()));
+                    native_context().with_context_map());
   a.Store(AccessBuilder::ForContextSlot(Context::SCOPE_INFO_INDEX), scope_info);
   a.Store(AccessBuilder::ForContextSlot(Context::PREVIOUS_INDEX), context);
   a.Store(AccessBuilder::ForContextSlot(Context::EXTENSION_INDEX), extension);
-  a.Store(AccessBuilder::ForContextSlot(Context::NATIVE_CONTEXT_INDEX),
-          jsgraph()->Constant(native_context()));
   RelaxControls(node);
   a.FinishAndChange(node);
   return Changed(node);
@@ -1257,14 +1256,12 @@ Reduction JSCreateLowering::ReduceJSCreateCatchContext(Node* node) {
   Node* extension = jsgraph()->TheHoleConstant();
 
   AllocationBuilder a(jsgraph(), effect, control);
-  STATIC_ASSERT(Context::MIN_CONTEXT_SLOTS == 4);  // Ensure fully covered.
+  STATIC_ASSERT(Context::MIN_CONTEXT_SLOTS == 3);  // Ensure fully covered.
   a.AllocateContext(Context::MIN_CONTEXT_SLOTS + 1,
-                    MapRef(broker(), factory()->catch_context_map()));
+                    native_context().catch_context_map());
   a.Store(AccessBuilder::ForContextSlot(Context::SCOPE_INFO_INDEX), scope_info);
   a.Store(AccessBuilder::ForContextSlot(Context::PREVIOUS_INDEX), context);
   a.Store(AccessBuilder::ForContextSlot(Context::EXTENSION_INDEX), extension);
-  a.Store(AccessBuilder::ForContextSlot(Context::NATIVE_CONTEXT_INDEX),
-          jsgraph()->Constant(native_context()));
   a.Store(AccessBuilder::ForContextSlot(Context::THROWN_OBJECT_INDEX),
           exception);
   RelaxControls(node);
@@ -1286,15 +1283,12 @@ Reduction JSCreateLowering::ReduceJSCreateBlockContext(Node* node) {
     Node* extension = jsgraph()->TheHoleConstant();
 
     AllocationBuilder a(jsgraph(), effect, control);
-    STATIC_ASSERT(Context::MIN_CONTEXT_SLOTS == 4);  // Ensure fully covered.
-    a.AllocateContext(context_length,
-                      MapRef(broker(), factory()->block_context_map()));
+    STATIC_ASSERT(Context::MIN_CONTEXT_SLOTS == 3);  // Ensure fully covered.
+    a.AllocateContext(context_length, native_context().block_context_map());
     a.Store(AccessBuilder::ForContextSlot(Context::SCOPE_INFO_INDEX),
             scope_info);
     a.Store(AccessBuilder::ForContextSlot(Context::PREVIOUS_INDEX), context);
     a.Store(AccessBuilder::ForContextSlot(Context::EXTENSION_INDEX), extension);
-    a.Store(AccessBuilder::ForContextSlot(Context::NATIVE_CONTEXT_INDEX),
-            jsgraph()->Constant(native_context()));
     for (int i = Context::MIN_CONTEXT_SLOTS; i < context_length; ++i) {
       a.Store(AccessBuilder::ForContextSlot(i), jsgraph()->UndefinedConstant());
     }
@@ -1346,7 +1340,7 @@ Reduction JSCreateLowering::ReduceJSCreateObject(Node* node) {
     int capacity =
         NameDictionary::ComputeCapacity(NameDictionary::kInitialCapacity);
     DCHECK(base::bits::IsPowerOfTwo(capacity));
-    int length = NameDictionary::EntryToIndex(capacity);
+    int length = NameDictionary::EntryToIndex(InternalIndex(capacity));
     int size = NameDictionary::SizeFor(length);
 
     AllocationBuilder a(jsgraph(), effect, control);
@@ -1628,7 +1622,7 @@ Node* JSCreateLowering::AllocateFastLiteral(Node* effect, Node* control,
   ZoneVector<std::pair<FieldAccess, Node*>> inobject_fields(zone());
   inobject_fields.reserve(boilerplate_map.GetInObjectProperties());
   int const boilerplate_nof = boilerplate_map.NumberOfOwnDescriptors();
-  for (int i = 0; i < boilerplate_nof; ++i) {
+  for (InternalIndex i : InternalIndex::Range(boilerplate_nof)) {
     PropertyDetails const property_details =
         boilerplate_map.GetPropertyDetails(i);
     if (property_details.location() != kField) continue;

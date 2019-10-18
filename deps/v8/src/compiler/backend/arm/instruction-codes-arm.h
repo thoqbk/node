@@ -128,6 +128,9 @@ namespace compiler {
   V(ArmPeek)                       \
   V(ArmDmbIsh)                     \
   V(ArmDsbIsb)                     \
+  V(ArmF64x2Splat)                 \
+  V(ArmF64x2ExtractLane)           \
+  V(ArmF64x2ReplaceLane)           \
   V(ArmF32x4Splat)                 \
   V(ArmF32x4ExtractLane)           \
   V(ArmF32x4ReplaceLane)           \
@@ -135,6 +138,7 @@ namespace compiler {
   V(ArmF32x4UConvertI32x4)         \
   V(ArmF32x4Abs)                   \
   V(ArmF32x4Neg)                   \
+  V(ArmF32x4Sqrt)                  \
   V(ArmF32x4RecipApprox)           \
   V(ArmF32x4RecipSqrtApprox)       \
   V(ArmF32x4Add)                   \
@@ -259,6 +263,7 @@ namespace compiler {
   V(ArmS8x16TransposeLeft)         \
   V(ArmS8x16TransposeRight)        \
   V(ArmS8x16Concat)                \
+  V(ArmS8x16Swizzle)               \
   V(ArmS8x16Shuffle)               \
   V(ArmS32x2Reverse)               \
   V(ArmS16x4Reverse)               \

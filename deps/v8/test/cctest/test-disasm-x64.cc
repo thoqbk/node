@@ -182,6 +182,8 @@ TEST(DisasmX64) {
   __ decq(rdx);
   __ cdq();
 
+  __ repstosq();
+
   __ nop();
   __ idivq(rdx);
   __ mull(rdx);
@@ -592,6 +594,7 @@ TEST(DisasmX64) {
       __ movups(xmm5, xmm1);
       __ movups(xmm5, Operand(rdx, 4));
       __ movups(Operand(rdx, 4), xmm5);
+      __ movlhps(xmm5, xmm1);
       __ pmulld(xmm5, xmm1);
       __ pmulld(xmm5, Operand(rdx, 4));
       __ pmullw(xmm5, xmm1);
@@ -850,6 +853,15 @@ TEST(DisasmX64) {
       __ vfnmsub213ss(xmm0, xmm1, Operand(rbx, rcx, times_4, 10000));
       __ vfnmsub231ss(xmm0, xmm1, xmm2);
       __ vfnmsub231ss(xmm0, xmm1, Operand(rbx, rcx, times_4, 10000));
+
+      __ vfmadd231ps(xmm0, xmm1, xmm2);
+      __ vfmadd231ps(xmm0, xmm1, Operand(rbx, rcx, times_4, 10000));
+      __ vfnmadd231ps(xmm0, xmm1, xmm2);
+      __ vfnmadd231ps(xmm0, xmm1, Operand(rbx, rcx, times_4, 10000));
+      __ vfmadd231pd(xmm0, xmm1, xmm2);
+      __ vfmadd231pd(xmm0, xmm1, Operand(rbx, rcx, times_4, 10000));
+      __ vfnmadd231pd(xmm0, xmm1, xmm2);
+      __ vfnmadd231pd(xmm0, xmm1, Operand(rbx, rcx, times_4, 10000));
     }
   }
 

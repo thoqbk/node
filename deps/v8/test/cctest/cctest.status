@@ -123,6 +123,22 @@
 }],  # ALWAYS
 
 ##############################################################################
+['(arch != ia32 and arch != x64)', {
+  # BUG(v8:9860). We can only safely read the native context for a frame on
+  # ia32 and x64.
+  'test-cpu-profiler/ContextFilterMovedNativeContext': [FAIL],
+  'test-cpu-profiler/ContextIsolation': [FAIL],
+}],
+
+##############################################################################
+['tsan == True', {
+  # BUG(v8:9869) TSAN considers SIGPROF an asynchronous signal, and will call
+  # into the handler after the stack has drifted from the context on the
+  # signal.
+  'test-cpu-profiler/*': [SKIP],
+}],
+
+##############################################################################
 ['arch == arm64', {
   'test-api/Bug618': [PASS],
 
@@ -151,6 +167,8 @@
   # Pass but take too long with the simulator.
   'test-api/ExternalArrays': [PASS, SLOW],
   'test-api/Threading*': [SKIP],
+  'test-cpu-profiler/MultipleIsolates': [PASS, SLOW],
+  'test-debug/DebugBreakStackTrace': [PASS, SLOW],
 }],  # 'arch == arm64 and simulator_run'
 
 ##############################################################################
@@ -227,6 +245,7 @@
   # operations.
   'test-run-wasm-atomics/*': [SKIP],
   'test-run-wasm-atomics64/*': [SKIP],
+  'test-regexp/Peephole*': [SKIP],
 }],  # 'byteorder == big'
 
 ##############################################################################
@@ -259,6 +278,7 @@
 ['arch == arm and simulator_run', {
   # Pass but take too long with the simulator.
   'test-api/Threading*': [SKIP],
+  'test-cpu-profiler/MultipleIsolates': [PASS, SLOW],
 }],  # 'arch == arm and simulator_run'
 
 ##############################################################################
@@ -471,8 +491,10 @@
   'test-api/WasmI32AtomicWaitCallback': [SKIP],
   'test-api/WasmI64AtomicWaitCallback': [SKIP],
   'test-api/WasmStreaming*': [SKIP],
+  'test-backing-store/Run_WasmModule_Buffer_Externalized_Regression_UseAfterFree': [SKIP],
   'test-c-wasm-entry/*': [SKIP],
   'test-jump-table-assembler/*': [SKIP],
+  'test-grow-memory/*': [SKIP],
   'test-run-wasm-64/*': [SKIP],
   'test-run-wasm-asmjs/*': [SKIP],
   'test-run-wasm-atomics64/*': [SKIP],
@@ -609,5 +631,13 @@
 ['variant == jitless and not embedded_builtins', {
   '*': [SKIP],
 }], # variant == jitless and not embedded_builtins
+
+##############################################################################
+['variant == turboprop', {
+  # Require inlining.
+  'test-cpu-profiler/DeoptAtFirstLevelInlinedSource': [SKIP],
+  'test-cpu-profiler/DeoptAtSecondLevelInlinedSource': [SKIP],
+  'test-cpu-profiler/DeoptUntrackedFunction': [SKIP],
+}],  # variant == turboprop
 
 ]

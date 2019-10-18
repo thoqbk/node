@@ -102,7 +102,6 @@ namespace internal {
   ASM(ResumeGeneratorTrampoline, ResumeGenerator)                              \
                                                                                \
   /* String helpers */                                                         \
-  TFC(StringCharAt, StringAt)                                                  \
   TFC(StringCodePointAt, StringAt)                                             \
   TFC(StringFromCodePointAt, StringAtAsString)                                 \
   TFC(StringEqual, Compare)                                                    \
@@ -219,9 +218,7 @@ namespace internal {
   TFH(KeyedLoadIC_Slow, LoadWithVector)                                        \
   TFH(KeyedStoreIC_Megamorphic, Store)                                         \
   TFH(KeyedStoreIC_Slow, StoreWithVector)                                      \
-  TFH(LoadGlobalIC_Slow, LoadWithVector)                                       \
   TFH(LoadIC_FunctionPrototype, LoadWithVector)                                \
-  TFH(LoadIC_Slow, LoadWithVector)                                             \
   TFH(LoadIC_StringLength, LoadWithVector)                                     \
   TFH(LoadIC_StringWrapperLength, LoadWithVector)                              \
   TFH(LoadIC_NoFeedback, Load)                                                 \
@@ -230,7 +227,6 @@ namespace internal {
   TFH(StoreInArrayLiteralIC_Slow, StoreWithVector)                             \
   TFH(KeyedLoadIC_SloppyArguments, LoadWithVector)                             \
   TFH(LoadIndexedInterceptorIC, LoadWithVector)                                \
-  TFH(StoreInterceptorIC, StoreWithVector)                                     \
   TFH(KeyedStoreIC_SloppyArguments_Standard, StoreWithVector)                  \
   TFH(KeyedStoreIC_SloppyArguments_GrowNoTransitionHandleCOW, StoreWithVector) \
   TFH(KeyedStoreIC_SloppyArguments_NoTransitionIgnoreOOB, StoreWithVector)     \
@@ -568,6 +564,9 @@ namespace internal {
       SharedFunctionInfo::kDontAdaptArgumentsSentinel)                         \
   CPP(AsyncFunctionConstructor)                                                \
                                                                                \
+  /* Iterator Protocol */                                                      \
+  TFC(GetIteratorWithFeedbackLazyDeoptContinuation, GetIteratorStackParameter) \
+                                                                               \
   /* Global object */                                                          \
   CPP(GlobalDecodeURI)                                                         \
   CPP(GlobalDecodeURIComponent)                                                \
@@ -616,6 +615,10 @@ namespace internal {
   TFS(IterableToList, kIterable, kIteratorFn)                                  \
   TFS(IterableToListWithSymbolLookup, kIterable)                               \
   TFS(IterableToListMayPreserveHoles, kIterable, kIteratorFn)                  \
+  TFS(IterableToFixedArrayForWasm, kIterable, kExpectedLength)                 \
+                                                                               \
+  /* #sec-createstringlistfromiterable */                                      \
+  TFS(StringListFromIterable, kIterable)                                       \
                                                                                \
   /* Map */                                                                    \
   TFS(FindOrderedHashMapEntry, kTable, kKey)                                   \
@@ -759,8 +762,6 @@ namespace internal {
   TFS(ForInFilter, kKey, kObject)                                              \
                                                                                \
   /* Promise */                                                                \
-  /* ES #sec-fulfillpromise */                                                 \
-  TFS(FulfillPromise, kPromise, kValue)                                        \
   /* ES #sec-rejectpromise */                                                  \
   TFS(RejectPromise, kPromise, kReason, kDebugEvent)                           \
   /* ES #sec-promise-resolve-functions */                                      \
@@ -822,7 +823,6 @@ namespace internal {
   ASM(ReflectConstruct, Dummy)                                                 \
   CPP(ReflectDefineProperty)                                                   \
   CPP(ReflectGetOwnPropertyDescriptor)                                         \
-  TFJ(ReflectHas, 2, kReceiver, kTarget, kKey)                                 \
   CPP(ReflectOwnKeys)                                                          \
   CPP(ReflectSet)                                                              \
                                                                                \
@@ -845,28 +845,13 @@ namespace internal {
   CPP(RegExpLeftContextGetter)                                                 \
   /* ES #sec-regexp.prototype.compile */                                       \
   TFJ(RegExpPrototypeCompile, 2, kReceiver, kPattern, kFlags)                  \
-  /* ES #sec-regexp.prototype.exec */                                          \
-  TFJ(RegExpPrototypeExec, 1, kReceiver, kString)                              \
-  /* https://tc39.github.io/proposal-string-matchall/ */                       \
-  TFJ(RegExpPrototypeMatchAll, 1, kReceiver, kString)                          \
-  /* ES #sec-regexp.prototype-@@search */                                      \
-  TFJ(RegExpPrototypeSearch, 1, kReceiver, kString)                            \
   CPP(RegExpPrototypeToString)                                                 \
   CPP(RegExpRightContextGetter)                                                \
                                                                                \
-  /* ES #sec-regexp.prototype-@@split */                                       \
-  TFJ(RegExpPrototypeSplit, SharedFunctionInfo::kDontAdaptArgumentsSentinel)   \
   /* RegExp helpers */                                                         \
   TFS(RegExpExecAtom, kRegExp, kString, kLastIndex, kMatchInfo)                \
   TFS(RegExpExecInternal, kRegExp, kString, kLastIndex, kMatchInfo)            \
   ASM(RegExpInterpreterTrampoline, CCall)                                      \
-  TFS(RegExpPrototypeExecSlow, kReceiver, kString)                             \
-  TFS(RegExpSearchFast, kReceiver, kPattern)                                   \
-  TFS(RegExpSplit, kRegExp, kString, kLimit)                                   \
-                                                                               \
-  /* RegExp String Iterator */                                                 \
-  /* https://tc39.github.io/proposal-string-matchall/ */                       \
-  TFJ(RegExpStringIteratorPrototypeNext, 0, kReceiver)                         \
                                                                                \
   /* Set */                                                                    \
   TFJ(SetConstructor, SharedFunctionInfo::kDontAdaptArgumentsSentinel)         \
@@ -1117,7 +1102,6 @@ namespace internal {
   TFS(SetProperty, kReceiver, kKey, kValue)                                    \
   TFS(SetPropertyInLiteral, kReceiver, kKey, kValue)                           \
   ASM(MemCopyUint8Uint8, CCall)                                                \
-  ASM(MemCopyUint16Uint8, CCall)                                               \
   ASM(MemMove, CCall)                                                          \
                                                                                \
   /* Trace */                                                                  \
@@ -1131,7 +1115,14 @@ namespace internal {
   CPP(FinalizationGroupRegister)                                               \
   CPP(FinalizationGroupUnregister)                                             \
   CPP(WeakRefConstructor)                                                      \
-  CPP(WeakRefDeref)
+  CPP(WeakRefDeref)                                                            \
+                                                                               \
+  /* Async modules */                                                          \
+  TFJ(AsyncModuleEvaluate, SharedFunctionInfo::kDontAdaptArgumentsSentinel)    \
+                                                                               \
+  /* CallAsyncModule* are spec anonymyous functions */                         \
+  CPP(CallAsyncModuleFulfilled)                                                \
+  CPP(CallAsyncModuleRejected)
 
 #ifdef V8_INTL_SUPPORT
 #define BUILTIN_LIST_INTL(CPP, TFJ, TFS)                               \
